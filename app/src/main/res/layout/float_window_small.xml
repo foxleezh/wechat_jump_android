@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+        android:id="@+id/ll_root"
+        android:layout_width="70dp"
+        android:orientation="horizontal"
+        android:background="@drawable/icon"
+        android:layout_height="36dp">
+        <TextView
+            android:id="@+id/tv_open"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="打开"
+            android:textSize="16dp"
+            android:gravity="center"
+            android:textColor="#f00"
+            />
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="调整"
+            android:gravity="center"
+            android:textSize="16dp"
+            android:textColor="#f00"
+            />
+</LinearLayout>
