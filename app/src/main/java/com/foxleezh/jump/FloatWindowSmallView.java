@@ -157,6 +157,7 @@ public class FloatWindowSmallView extends LinearLayout {
         } else {
             service.createBigWindow();
             tv_open.setText("关闭");
+            service.screenShot(1000);
         }
         isBigOpen = !isBigOpen;
     }

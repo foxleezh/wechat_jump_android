@@ -1,14 +1,12 @@
 package com.foxleezh.jump;
 
-import android.app.AlertDialog;
-import android.content.DialogInterface;
+
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.provider.Settings;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
-import android.view.View;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -17,6 +15,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         checkPermisson();
+        finish();
     }
 
     public void checkPermisson() {
@@ -45,3 +44,4 @@ public class MainActivity extends AppCompatActivity {
     }
 
 }
+

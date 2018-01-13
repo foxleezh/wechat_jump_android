@@ -5,15 +5,33 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
+import android.graphics.drawable.BitmapDrawable;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.SystemClock;
+import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
 import android.widget.ListView;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+
+import de.greenrobot.event.EventBus;
 
 
 public class FloatWindowService extends Service {
@@ -22,6 +40,8 @@ public class FloatWindowService extends Service {
     public int screenWidth;
     public int screenHeight;
     public int statusHeight;
+    public int dpi;
+    public int bigview_margin_top;
 
     /**
      * 小悬浮窗View的参数
@@ -54,6 +74,23 @@ public class FloatWindowService extends Service {
     int status;
 
 
+    int mResultCode;
+    Intent mData;
+
+    private static final String TAG = "TAG";
+
+
+    VirtualDisplay virtualDisplay;
+
+    ImageReader imageReader;
+
+    String imageName;
+    MediaProjection mediaProjection;
+    MediaProjectionManager projectionManager;
+    Bitmap bitmap;
+    private OutputStream os = null;
+
+
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -62,6 +99,15 @@ public class FloatWindowService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        EventBus.getDefault().register(this);
+
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        EventBus.getDefault().unregister(this);
+
     }
 
     @Override
@@ -83,7 +129,9 @@ public class FloatWindowService extends Service {
             e.printStackTrace();
         }
         statusHeight=Util.getStatusBarHeight(this);
+        projectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         createSmallWindow();
+        Config.readConfig(this);
         /**
          * 该值在service杀掉后定时重启，杀掉后会执行ondestroy
          */
@@ -99,10 +147,11 @@ public class FloatWindowService extends Service {
     public WindowManager getWindowManager(Context context) {
         if (mWindowManager == null) {
             mWindowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
-            Point p=new Point();
-            mWindowManager.getDefaultDisplay().getSize(p);
-            screenWidth=p.x;
-            screenHeight=p.y;
+            DisplayMetrics metric = new DisplayMetrics();
+            mWindowManager.getDefaultDisplay().getMetrics(metric);
+            screenWidth = metric.widthPixels;
+            screenHeight = metric.heightPixels;
+            dpi = metric.densityDpi;
         }
         return mWindowManager;
     }
@@ -142,6 +191,7 @@ public class FloatWindowService extends Service {
     public void createBigWindow() {
         WindowManager windowManager = getWindowManager(this);
         if (bigWindow == null) {
+            bigview_margin_top=(int) Util.dip2px(this,30)+FloatWindowSmallView.viewHeight;
             bigWindow = new FloatWindowBigView(this);
             if (bigWindowParams == null) {
                 bigWindowParams = new WindowManager.LayoutParams();
@@ -155,12 +205,55 @@ public class FloatWindowService extends Service {
                 bigWindowParams.flags = LayoutParams.FLAG_NOT_TOUCH_MODAL | LayoutParams.FLAG_NOT_FOCUSABLE;
                 bigWindowParams.gravity = Gravity.TOP;
                 bigWindowParams.width = FloatWindowBigView.viewWidth;
-                bigWindowParams.height = (screenHeight-(int) Util.dip2px(this,30)-FloatWindowSmallView.viewHeight-statusHeight);
-                bigWindowParams.x = 0;
+                bigWindowParams.height = (screenHeight-bigview_margin_top);
                 bigWindowParams.y = (int) Util.dip2px(this,30)+FloatWindowSmallView.viewHeight;
             }
             windowManager.addView(bigWindow, bigWindowParams);
             status=0;
+        }
+    }
+
+    public void onEvent(ScreenShotResultEvent event) {
+        mResultCode=event.mResultCode;
+        mData=event.mData;
+        setUpMediaProjection();
+        setUpVirtualDisplay();
+        startCapture();
+    }
+
+    public void screenShot(long delay) {
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                Intent intent = new Intent(FloatWindowService.this, SplashActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+                removeBigWindow();
+                clickDialog();
+            }
+        },delay);
+
+    }
+
+    public void clickDialog(){
+        int dialog_x= (int) (screenWidth-Util.dip2px(this,50));
+        int dialog_y= (int) (screenHeight/2+Util.dip2px(this,70));
+        exec("input tap "+dialog_x+" "+dialog_y+"\n");
+    }
+
+    /**
+     *   执行shell命令
+     */
+    public void exec(String cmd) {
+        try {
+            if (os == null) {
+                os = Runtime.getRuntime().exec("su").getOutputStream();
+            }
+            os.write(cmd.getBytes());
+            os.flush();
+        } catch (IOException e) {
+            Util.toastTips(this, "ROOT权限获取失败");
+            e.printStackTrace();
         }
     }
 
@@ -188,14 +281,56 @@ public class FloatWindowService extends Service {
             Util.toastTips(this,"请先点击打开");
             return;
         }
-        if(status==0){
-            bigWindow.setFirstPoint();
-        }else if(status==1){
-            bigWindow.setSecendPoint();
-        }else {
+//        if(status==0){
+//            bigWindow.setFirstPoint();
+//        }else if(status==1){
+//            bigWindow.setSecendPoint();
+//        }else {
             bigWindow.jump();
-        }
+//        }
     }
 
+
+    public void postJump(){
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                bigWindow.jump();
+            }
+        },1000);
+    }
+
+    private void startCapture() {
+        SystemClock.sleep(200);
+        imageName = System.currentTimeMillis() + ".png";
+        Image image = imageReader.acquireNextImage();
+        if (image == null) {
+            return;
+        }
+        int width = image.getWidth();
+        int height = image.getHeight();
+        final Image.Plane[] planes = image.getPlanes();
+        final ByteBuffer buffer = planes[0].getBuffer();
+        int pixelStride = planes[0].getPixelStride();
+        int rowStride = planes[0].getRowStride();
+        int rowPadding = rowStride - pixelStride * width;
+        bitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888);
+        bitmap.copyPixelsFromBuffer(buffer);
+        image.close();
+        createBigWindow();
+        bigWindow.handleScreenShot();
+    }
+
+    private void setUpVirtualDisplay() {
+        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 1);
+        mediaProjection.createVirtualDisplay("ScreenShout",
+                screenWidth,screenHeight,dpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader.getSurface(),null,null);
+    }
+
+    private void setUpMediaProjection(){
+        mediaProjection = projectionManager.getMediaProjection(mResultCode,mData);
+    }
 
 }
