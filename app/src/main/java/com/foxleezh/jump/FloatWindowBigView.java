@@ -1,46 +1,20 @@
 package com.foxleezh.jump;
 
 
-import android.app.Activity;
 import android.content.Context;
-import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.PixelFormat;
-import android.graphics.Rect;
-import android.graphics.RectF;
-import android.graphics.drawable.BitmapDrawable;
-import android.hardware.display.DisplayManager;
-import android.hardware.display.VirtualDisplay;
-import android.media.Image;
-import android.media.ImageReader;
-import android.media.projection.MediaProjection;
-import android.media.projection.MediaProjectionManager;
-import android.os.Environment;
-import android.os.SystemClock;
-import android.util.DisplayMetrics;
-import android.util.Log;
+import android.os.Handler;
 import android.view.GestureDetector;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 
 
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
-
-import javax.microedition.khronos.opengles.GL;
-
-import de.greenrobot.event.EventBus;
-
-import static android.content.Context.MEDIA_PROJECTION_SERVICE;
 
 public class FloatWindowBigView extends LinearLayout {
 
@@ -67,6 +41,7 @@ public class FloatWindowBigView extends LinearLayout {
     private float tempY;
 
     private int[] canvasPoint=new int[]{0,0,0,0,0,0,0,0};
+    private int[] bitpoint;
 
     private Paint linePaint;
 
@@ -88,6 +63,8 @@ public class FloatWindowBigView extends LinearLayout {
         linePaint.setColor(Color.RED);
         linePaint.setStrokeWidth(Util.dip2px(this.service, 2));
         myGesture=new MyGesture(this.service);
+        setBackgroundColor(Color.TRANSPARENT);
+
     }
 
     @Override
@@ -113,13 +90,22 @@ public class FloatWindowBigView extends LinearLayout {
 
     public void jump() {
         culcLength();
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                reset();
+            }
+        },1000);
+        service.screenShot(4000);
+    }
+
+
+    public void reset(){
         startX = startY = stopX = stopY = 0;
         service.status = 0;
         canvasPoint[0]=0;
         postInvalidate();
-        service.screenShot(4000);
     }
-
 
 
     @Override
@@ -144,8 +130,8 @@ public class FloatWindowBigView extends LinearLayout {
     }
 
 
-    public int[] getRGB(int x,int y){
-        int pexel=service.bitmap.getPixel(x, y);
+    public int[] getRGB(int x,int y,int w){
+        int pexel=bitpoint[y*w+x];
         int[] rgb=new int[3];
         rgb[0]=Color.red(pexel);
         rgb[1]=Color.green(pexel);
@@ -162,8 +148,14 @@ public class FloatWindowBigView extends LinearLayout {
      * 处理截屏,找出棋子坐标以及目标盒子坐标
      */
     public void handleScreenShot(){
+        service.bitmap=Bitmap.createBitmap(service.bitmap,0,0,service.screenWidth,service.screenHeight,null,false);
+
         int w = service.bitmap.getWidth();
         int h = service.bitmap.getHeight();
+        if(bitpoint==null){
+            bitpoint=new int[w*h];
+        }
+        service.bitmap.getPixels(bitpoint, 0, w, 0, 0, w, h);
 
         //找出图形大概范围,从1/3屏幕高度到2/3屏幕高度,步进4提高效率
         int[] last_pixel=new int[3];
@@ -173,9 +165,9 @@ public class FloatWindowBigView extends LinearLayout {
             if(scan_start_y!=0){
                 break;
             }
-            last_pixel = getRGB(0, i);
+            last_pixel = getRGB(0, i,w);
             for (int j = 0; j < w; j++) {
-                int[] pixel=getRGB(j,i);
+                int[] pixel=getRGB(j,i,w);
                 if(compareColor(last_pixel,pixel)>0){
                     scan_start_y=i-4;
                 }
@@ -191,17 +183,20 @@ public class FloatWindowBigView extends LinearLayout {
 
         for (int i = scan_start_y; i < scan_end_y; i++) {
             for (int j = 0; j < w; j++) {
-                int[] pixel = getRGB(j, i);
+                int[] pixel = getRGB(j, i,w);
                 if ((50 < pixel[0] && pixel[0]< 60)&&(53 < pixel[1]&&pixel[1] < 63)&& (95 < pixel[2]&&pixel[2] < 110)){
                     self_x_sum += j;
                     self_x_c += 1;
                     self_y = Math.max(i, self_y);
+                    GLog.d("foxlee++++++++++",pixel[0],pixel[1],pixel[2]);
                 }
             }
         }
-        self_x=self_x_sum / self_x_c;
-        self_x += Util.dip2px(service,1);
-        self_y -= Util.dip2px(service,5);
+        if(self_x_c!=0) {
+            self_x = self_x_sum / self_x_c;
+        }
+        self_x += Config.self_bottom_x_offset;
+        self_y -= Config.self_bottom_y_offset;
         canvasPoint[0]=self_x;
         canvasPoint[1]=self_y;
 
@@ -221,16 +216,16 @@ public class FloatWindowBigView extends LinearLayout {
         int board_y=0;
 
         for (int i = scan_start_y; i < scan_end_y; i++) {
-            last_pixel = getRGB(0, i);
+            last_pixel = getRGB(0, i,w);
             if(board_x!=0){
                 board_y=i;
-                last_pixel=getRGB(board_x,board_y);
+                last_pixel=getRGB(board_x,board_y,w);
                 canvasPoint[2]=board_x;
                 canvasPoint[3]=board_y;
                 break;
             }
             for (int j = scan_start_x; j < scan_end_x; j++) {
-                int[] pixel=getRGB(j,i);
+                int[] pixel=getRGB(j,i,w);
                 if (Math.abs(j - self_x) < Config.self_body_width){
                     continue;
                 }
@@ -245,7 +240,7 @@ public class FloatWindowBigView extends LinearLayout {
         }
 
         for (int i = self_y; i > board_y; i--) {
-            int[] pixel=getRGB(board_x,i);
+            int[] pixel=getRGB(board_x,i,w);
             if(compareColor(last_pixel,pixel)<10){
                 canvasPoint[4]=board_x;
                 canvasPoint[5]=i;
@@ -258,7 +253,7 @@ public class FloatWindowBigView extends LinearLayout {
         int[] white=new int[]{245,245,245};
 
         for (int i = self_y; i > board_y; i--) {
-            int[] pixel=getRGB(board_x,i);
+            int[] pixel=getRGB(board_x,i,w);
             if(compareColor(white,pixel) == 0){
                 board_y=(i-Config.white_point_width);
                 break;
@@ -267,6 +262,7 @@ public class FloatWindowBigView extends LinearLayout {
         canvasPoint[6]=board_x;
         canvasPoint[7]=board_y;
         service.postJump();
+
     }
 
 

@@ -229,7 +229,7 @@ public class FloatWindowService extends Service {
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
                 removeBigWindow();
-                clickDialog();
+//                clickDialog();
             }
         },delay);
 
@@ -292,16 +292,12 @@ public class FloatWindowService extends Service {
 
 
     public void postJump(){
-        new Handler().postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                bigWindow.jump();
-            }
-        },1000);
+        bigWindow.postInvalidate();
+        bigWindow.jump();
     }
 
     private void startCapture() {
-        SystemClock.sleep(200);
+        SystemClock.sleep(1000);
         imageName = System.currentTimeMillis() + ".png";
         Image image = imageReader.acquireNextImage();
         if (image == null) {
